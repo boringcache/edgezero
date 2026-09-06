@@ -57,6 +57,7 @@ jobs:
               f.write('sha=' + source + '\napplication=' + commits[index] + '\n')
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write('UPSTREAM_SHA=' + commits[index] + '\n')
+              f.write('ACTION_SHA=' + source + '\n')
               f.write('COHORT=' + ('rolling' if rolling else 'fresh') + '\n')
               f.write('CACHE_MODE=' + ('--read-only' if phase == 'warm' else '--write') + '\n')
           PY
@@ -74,7 +75,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: boringcache/benchmarks
-          ref: fdcf1856c1036a4992ba8f77402d735d21a97dee
+          ref: 3869ca64b0dcb5befeeecd300c20a1b0b86cdaa3
           path: harness
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
