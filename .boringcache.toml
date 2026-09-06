@@ -1,7 +1,7 @@
 workspace = "boringcache/benchmarks"
 
 [adapters.sccache]
-tag = "edgezero-app-cli-20260906"
+tag = "edgezero-app-cli-20260906-rolling"
 command = ["python3", "../harness/scripts/prospects/edgezero-container.py", "build"]
 fail-on-cache-error = true
 metadata-hints = ["project=edgezero", "workload=trusted-server-cli"]
