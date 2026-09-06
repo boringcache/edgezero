@@ -1,0 +1,21 @@
+name: Connect benchmark cache
+on:
+  push:
+    branches: [boringcache-validation]
+    paths: [.github/workflows/boringcache-connect.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  connect:
+    name: BoringCache connection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: boringcache/benchmarks/.github/actions/prospect-cli@b10248c62ee7b5f5b7a38ed24082973ffcd73a92
+      - run: boringcache ci connect --oidc-provider github-actions
+      - run: boringcache ci run --oidc-provider github-actions -- boringcache ci trust --request publish --json
