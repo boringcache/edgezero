@@ -1,15 +1,12 @@
 name: BoringCache validation
 run-name: edgezero ${{ inputs.phase || 'smoke' }}
 on:
-  push:
-    branches: [boringcache-validation]
-    paths: [.github/workflows/boringcache-validation.yml]
   workflow_dispatch:
     inputs:
       phase:
         description: Fresh rebuild or sequential application source changes
         type: choice
-        options: [smoke, cold, warm, seed, commit1, commit2, commit3]
+        options: [cold, warm, seed, commit1, commit2, commit3]
         default: cold
         required: true
       cli_version:
@@ -85,9 +82,6 @@ jobs:
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         with:
           version: v0.17.0
-      - uses: ./harness/.github/actions/prospect-cli
-        with:
-          cli-version: ${{ inputs.cli_version }}
       - name: Prepare checksum-pinned jq
         shell: bash
         run: |
@@ -121,14 +115,15 @@ jobs:
           python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../harness/scripts/prospects/edgezero-container.py "$command"
       - name: Measure BoringCache workload
         if: matrix.provider == 'boringcache'
-        shell: bash
-        working-directory: edgezero
-        run: |
-          if [ "$PHASE" = smoke ]; then
-            python3 ../harness/scripts/prospects/measure-command.py build -- boringcache ci run --oidc-provider github-actions -- boringcache sccache --tag edgezero-container-check-20260906 --write --fail-on-cache-error -- python3 ../harness/scripts/prospects/edgezero-container.py smoke
-          else
-            python3 ../harness/scripts/prospects/measure-command.py build -- boringcache ci run --oidc-provider github-actions -- boringcache sccache "$CACHE_MODE" --fail-on-cache-error
-          fi
+        id: cache
+        uses: boringcache/one@476c7df90bc1e7c2c4066aa7eb31cc057ef7f8d1 # v1.32.0
+        with:
+          cli-version: ${{ inputs.cli_version }}
+          mode: sccache
+          working-directory: edgezero
+          trust-policy: ${{ inputs.phase == 'warm' && 'restore' || 'publish' }}
+          fail-on-cache-error: true
+          diagnostics: summary
       - name: Verify application artifact without network or credentials
         if: env.PHASE != 'smoke'
         shell: bash
@@ -148,7 +143,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: edgezero-${{ matrix.provider }}-${{ env.PHASE }}
-          path: ${{ runner.temp }}/prospect-evidence
+          path: |
+            ${{ runner.temp }}/prospect-evidence
+            ${{ steps.cache.outputs.evidence-path }}
           if-no-files-found: error
           retention-days: 14
           include-hidden-files: true
