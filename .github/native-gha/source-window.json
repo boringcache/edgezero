@@ -1,0 +1,32 @@
+[
+  {
+    "parent": "b59567bbae89d26a8568d28a49ad4e321eb4e71e",
+    "sha": "d516a9e94249e10cbc36e41beb4269f9255cf407",
+    "subject": "Reject disallowed first-party proxy targets before signing (#1077)",
+    "phase": "seed"
+  },
+  {
+    "parent": "d516a9e94249e10cbc36e41beb4269f9255cf407",
+    "sha": "67b1d74250163c4e598751e85e68b0c412c42d19",
+    "subject": "Add auction telemetry addendum design spec (#987)",
+    "phase": "commit1"
+  },
+  {
+    "parent": "67b1d74250163c4e598751e85e68b0c412c42d19",
+    "sha": "0f8b44dc04e9ea9a3cc1815d908be1aec72e172d",
+    "subject": "Upgrade EdgeZero to v0.0.7 and complete staging runtime integration (#940)",
+    "phase": "commit2"
+  },
+  {
+    "parent": "0f8b44dc04e9ea9a3cc1815d908be1aec72e172d",
+    "sha": "f028eb35c7590a315db14388cf63f95c3996c000",
+    "subject": "Remove repeated creative rewriting warning (#1117)",
+    "phase": "commit3"
+  },
+  {
+    "parent": "f028eb35c7590a315db14388cf63f95c3996c000",
+    "sha": "22fbbf2a727d83f2e31fd86d2d1dc5ebfba1b071",
+    "subject": "Add JavaScript asset proxy integration (#742)",
+    "phase": "commit4"
+  }
+]
