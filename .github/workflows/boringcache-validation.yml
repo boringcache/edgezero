@@ -126,6 +126,9 @@ jobs:
           diagnostics: summary
       - name: Measure BoringCache workload
         if: matrix.provider == 'boringcache'
+        env:
+          # The isolated compiler must not connect to the runner's sccache daemon.
+          SCCACHE_SERVER_PORT: '4227'
         shell: bash
         working-directory: edgezero
         run: python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../harness/scripts/prospects/edgezero-container.py build
