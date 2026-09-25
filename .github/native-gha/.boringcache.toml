@@ -1,0 +1,6 @@
+workspace = "boringcache/benchmarks"
+
+[adapters.sccache]
+tag = "edgezero-native-gha-series"
+fail-on-cache-error = true
+metadata-hints = ["project=edgezero", "workload=trusted-server-cli"]

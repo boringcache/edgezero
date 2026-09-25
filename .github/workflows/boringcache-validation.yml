@@ -1,32 +1,28 @@
-name: BoringCache validation
-run-name: edgezero ${{ inputs.phase || 'smoke' }}
+name: BoringCache native GHA comparison
+run-name: EdgeZero native compiler storage comparison
 on:
   workflow_dispatch:
     inputs:
-      phase:
-        description: Fresh rebuild or sequential application source changes
-        type: choice
-        options: [cold, warm, seed, commit1, commit2, commit3]
-        default: cold
-        required: true
       cli_version:
         description: Optional exact BoringCache CLI release override
         type: string
         default: ''
-        required: false
 permissions:
   contents: read
 concurrency:
-  group: prospect-validation-${{ github.ref }}
+  group: edgezero-native-gha-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  benchmark:
-    name: ${{ matrix.provider }} edgezero ${{ inputs.phase || 'smoke' }}
+  cold:
+    name: ${{ matrix.provider }} edgezero cold sample ${{ matrix.sample }}
+    if: github.repository == 'boringcache/edgezero' && github.ref == 'refs/heads/boringcache-validation'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
+        sample: [1, 2, 3]
         provider: [github, boringcache]
     permissions:
       contents: read
@@ -34,39 +30,28 @@ jobs:
     env:
       PROSPECT: edgezero
       PROVIDER: ${{ matrix.provider }}
-      PHASE: ${{ inputs.phase || 'smoke' }}
+      PHASE: cold
+      UPSTREAM_SHA: 22fbbf2a727d83f2e31fd86d2d1dc5ebfba1b071
+      ACTION_SHA: bd4cc7ce6d7a85933def03390f90654da7f84eef
+      CACHE_SERIES: edgezero-native-gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.sample }}
     steps:
-      - name: Select pinned application and action sources
-        id: source
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import os
-          commits = ['67b1d74250163c4e598751e85e68b0c412c42d19',
-                     '0f8b44dc04e9ea9a3cc1815d908be1aec72e172d',
-                     'f028eb35c7590a315db14388cf63f95c3996c000',
-                     '22fbbf2a727d83f2e31fd86d2d1dc5ebfba1b071']
-          phase = os.environ['PHASE']
-          rolling = phase in ['seed', 'commit1', 'commit2', 'commit3']
-          index = ['seed', 'commit1', 'commit2', 'commit3'].index(phase) if rolling else 3
-          source = 'a3586ba7f1de206bcc45d59e87023ae03323f743' if rolling else 'bd4cc7ce6d7a85933def03390f90654da7f84eef'
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write('sha=' + source + '\napplication=' + commits[index] + '\n')
-          with open(os.environ['GITHUB_ENV'], 'a') as f:
-              f.write('UPSTREAM_SHA=' + commits[index] + '\n')
-              f.write('ACTION_SHA=' + source + '\n')
-              f.write('COHORT=' + ('rolling' if rolling else 'fresh') + '\n')
-              f.write('CACHE_MODE=' + ('--read-only' if phase == 'warm' else '--write') + '\n')
-          PY
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout validation configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ steps.source.outputs.sha }}
+          ref: ${{ github.sha }}
+          path: validation
+          persist-credentials: false
+      - name: Checkout pinned deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.ACTION_SHA }}
           path: edgezero
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout pinned application
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: IABTechLab/trusted-server
-          ref: ${{ steps.source.outputs.application }}
+          ref: ${{ env.UPSTREAM_SHA }}
           path: application
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -79,40 +64,37 @@ jobs:
         with:
           node-version: 24.12.0
           package-manager-cache: false
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+      - uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7
         with:
-          version: v0.17.0
-      - name: Prepare checksum-pinned jq
+          tool: sccache@0.17.0
+      - name: Prepare jq and cache identity
         shell: bash
         run: |
           mkdir -p benchmark-tools
           curl --fail --location --retry 3 https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64 -o benchmark-tools/jq
           echo '020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d  benchmark-tools/jq' | sha256sum --check
           chmod +x benchmark-tools/jq
-      - name: Verify upstream deployment action contracts
-        if: env.PHASE == 'smoke'
-        shell: bash
-        run: bash edgezero/.github/actions/deploy-core/tests/run.sh
-      - name: Restore GitHub compiler storage
-        if: matrix.provider == 'github' && env.PHASE != 'smoke'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: compiler-cache
-          key: edgezero-20260906-${{ env.COHORT }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: edgezero-20260906-${{ env.COHORT }}-
+          python3 - <<'PYCODE'
+          import os
+          from pathlib import Path
+          plan = Path('validation/.github/native-gha/.boringcache.toml')
+          plan.write_text(plan.read_text().replace('edgezero-native-gha-series', os.environ['CACHE_SERIES']))
+          PYCODE
       - name: Prepare isolated compiler
-        shell: bash
         env:
           BENCHMARK_SECRET_SENTINEL: benchmark-only-sentinel
-        run: python3 harness/scripts/prospects/edgezero-container.py prepare
-      - name: Measure GitHub workload
+        run: python3 validation/.github/native-gha/edgezero-container.py prepare
+      - name: Configure native GitHub Actions compiler storage
         if: matrix.provider == 'github'
-        shell: bash
-        working-directory: edgezero
-        run: |
-          command=build
-          if [ "$PHASE" = smoke ]; then command=smoke; fi
-          python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../harness/scripts/prospects/edgezero-container.py "$command"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+            core.exportVariable('ACTIONS_CACHE_SERVICE_V2', 'true');
+            core.exportVariable('SCCACHE_GHA_ENABLED', 'on');
+            core.exportVariable('SCCACHE_GHA_VERSION', process.env.CACHE_SERIES);
+            core.exportVariable('SCCACHE_GHA_RW_MODE', 'READ_WRITE');
       - name: Configure BoringCache compiler storage
         if: matrix.provider == 'boringcache'
         id: cache
@@ -120,40 +102,145 @@ jobs:
         with:
           cli-version: ${{ inputs.cli_version }}
           mode: sccache
-          working-directory: edgezero
-          trust-policy: ${{ inputs.phase == 'warm' && 'restore' || 'publish' }}
+          working-directory: validation/.github/native-gha
+          trust-policy: publish
           fail-on-cache-error: true
           diagnostics: summary
-      - name: Measure BoringCache workload
-        if: matrix.provider == 'boringcache'
+      - name: Measure the CLI producer build
         env:
-          # The isolated compiler must not connect to the runner's sccache daemon.
+          # Both compilers use an isolated daemon inside the build container.
           SCCACHE_SERVER_PORT: '4227'
-        shell: bash
         working-directory: edgezero
-        run: python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../harness/scripts/prospects/edgezero-container.py build
+        run: python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../validation/.github/native-gha/edgezero-container.py build
       - name: Verify application artifact without network or credentials
-        if: env.PHASE != 'smoke'
-        shell: bash
-        run: python3 harness/scripts/prospects/edgezero-container.py verify
-      - name: Save GitHub compiler storage
-        if: matrix.provider == 'github' && env.PHASE != 'warm' && env.PHASE != 'smoke'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: compiler-cache
-          key: edgezero-20260906-${{ env.COHORT }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: python3 validation/.github/native-gha/edgezero-container.py verify
       - name: Remove isolated compiler and temporary state
         if: always()
-        shell: bash
-        run: python3 harness/scripts/prospects/edgezero-container.py cleanup
+        run: python3 validation/.github/native-gha/edgezero-container.py cleanup
       - name: Retain benchmark evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: edgezero-${{ matrix.provider }}-${{ env.PHASE }}
+          name: edgezero-${{ matrix.provider }}-cold-sample-${{ matrix.sample }}
           path: |
             ${{ runner.temp }}/prospect-evidence
             ${{ steps.cache.outputs.evidence-path }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+          include-hidden-files: true
+  warm:
+    name: ${{ matrix.provider }} edgezero warm sample ${{ matrix.sample }}
+    if: github.repository == 'boringcache/edgezero' && github.ref == 'refs/heads/boringcache-validation'
+    needs: cold
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        sample: [1, 2, 3]
+        provider: [github, boringcache]
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROSPECT: edgezero
+      PROVIDER: ${{ matrix.provider }}
+      PHASE: warm
+      UPSTREAM_SHA: 22fbbf2a727d83f2e31fd86d2d1dc5ebfba1b071
+      ACTION_SHA: bd4cc7ce6d7a85933def03390f90654da7f84eef
+      CACHE_SERIES: edgezero-native-gha-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.sample }}
+    steps:
+      - name: Checkout validation configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          path: validation
+          persist-credentials: false
+      - name: Checkout pinned deployment action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.ACTION_SHA }}
+          path: edgezero
+          persist-credentials: false
+      - name: Checkout pinned application
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: IABTechLab/trusted-server
+          ref: ${{ env.UPSTREAM_SHA }}
+          path: application
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: boringcache/benchmarks
+          ref: 3869ca64b0dcb5befeeecd300c20a1b0b86cdaa3
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.12.0
+          package-manager-cache: false
+      - uses: taiki-e/install-action@fcf5432d9f50d67e37ee6e29bdb7a224ff67b4a7
+        with:
+          tool: sccache@0.17.0
+      - name: Prepare jq and cache identity
+        shell: bash
+        run: |
+          mkdir -p benchmark-tools
+          curl --fail --location --retry 3 https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64 -o benchmark-tools/jq
+          echo '020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d  benchmark-tools/jq' | sha256sum --check
+          chmod +x benchmark-tools/jq
+          python3 - <<'PYCODE'
+          import os
+          from pathlib import Path
+          plan = Path('validation/.github/native-gha/.boringcache.toml')
+          plan.write_text(plan.read_text().replace('edgezero-native-gha-series', os.environ['CACHE_SERIES']))
+          PYCODE
+      - name: Prepare isolated compiler
+        env:
+          BENCHMARK_SECRET_SENTINEL: benchmark-only-sentinel
+        run: python3 validation/.github/native-gha/edgezero-container.py prepare
+      - name: Configure native GitHub Actions compiler storage
+        if: matrix.provider == 'github'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+            core.exportVariable('ACTIONS_CACHE_SERVICE_V2', 'true');
+            core.exportVariable('SCCACHE_GHA_ENABLED', 'on');
+            core.exportVariable('SCCACHE_GHA_VERSION', process.env.CACHE_SERIES);
+            core.exportVariable('SCCACHE_GHA_RW_MODE', 'READ_ONLY');
+      - name: Configure BoringCache compiler storage
+        if: matrix.provider == 'boringcache'
+        id: cache
+        uses: boringcache/one@476c7df90bc1e7c2c4066aa7eb31cc057ef7f8d1 # v1.32.0
+        with:
+          cli-version: ${{ inputs.cli_version }}
+          mode: sccache
+          working-directory: validation/.github/native-gha
+          trust-policy: restore
+          fail-on-cache-error: true
+          diagnostics: summary
+      - name: Measure the CLI producer build
+        env:
+          # Both compilers use an isolated daemon inside the build container.
+          SCCACHE_SERVER_PORT: '4227'
+        working-directory: edgezero
+        run: python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../validation/.github/native-gha/edgezero-container.py build
+      - name: Verify application artifact without network or credentials
+        run: python3 validation/.github/native-gha/edgezero-container.py verify
+      - name: Remove isolated compiler and temporary state
+        if: always()
+        run: python3 validation/.github/native-gha/edgezero-container.py cleanup
+      - name: Retain benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: edgezero-${{ matrix.provider }}-warm-sample-${{ matrix.sample }}
+          path: |
+            ${{ runner.temp }}/prospect-evidence
+            ${{ steps.cache.outputs.evidence-path }}
+          if-no-files-found: error
+          retention-days: 30
           include-hidden-files: true
