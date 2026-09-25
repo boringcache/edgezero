@@ -113,7 +113,7 @@ jobs:
           command=build
           if [ "$PHASE" = smoke ]; then command=smoke; fi
           python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../harness/scripts/prospects/edgezero-container.py "$command"
-      - name: Measure BoringCache workload
+      - name: Configure BoringCache compiler storage
         if: matrix.provider == 'boringcache'
         id: cache
         uses: boringcache/one@476c7df90bc1e7c2c4066aa7eb31cc057ef7f8d1 # v1.32.0
@@ -124,6 +124,11 @@ jobs:
           trust-policy: ${{ inputs.phase == 'warm' && 'restore' || 'publish' }}
           fail-on-cache-error: true
           diagnostics: summary
+      - name: Measure BoringCache workload
+        if: matrix.provider == 'boringcache'
+        shell: bash
+        working-directory: edgezero
+        run: python3 ../harness/scripts/prospects/measure-command.py build -- python3 ../harness/scripts/prospects/edgezero-container.py build
       - name: Verify application artifact without network or credentials
         if: env.PHASE != 'smoke'
         shell: bash
